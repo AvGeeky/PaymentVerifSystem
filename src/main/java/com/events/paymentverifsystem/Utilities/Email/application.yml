@@ -1,0 +1,28 @@
+email:
+  host: imap.gmail.com
+  port: 993
+  protocol: imaps
+  username: attendez.app@gmail.com
+  password: ${EMAIL_PASSWORD:}
+  use-oauth2: false
+  connection-timeout: 5000
+  timeout: 5000
+  keep-alive-freq-millis: 300000
+  idle-reconnect-backoff-seconds: 2
+  idle-reconnect-max-backoff-seconds: 300
+  processed-store:
+    processed-message-ttl-seconds: 86400
+
+
+gmail:
+  client-id: ${GMAIL_CLIENT_ID:}
+  client-secret: ${GMAIL_CLIENT_SECRET:}
+  refresh-token: ${GMAIL_REFRESH_TOKEN:}
+
+spring:
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+
