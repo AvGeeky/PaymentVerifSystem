@@ -1,6 +1,6 @@
 package com.events.paymentverifsystem.Utilities.Email;
 
-//chatgpt gave this, it is wrong, have to fix it
+
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
@@ -66,7 +66,7 @@ public final class EmailParser {
         try { return m.getSubject(); } catch (MessagingException e) { return ""; }
     }
 
-    private static String safeGetMessageId(Message message) {
+    static String safeGetMessageId(Message message) {
         try {
             String[] hdr = message.getHeader("Message-ID");
             if (hdr != null && hdr.length > 0 && hdr[0] != null && !hdr[0].isBlank()) return hdr[0];

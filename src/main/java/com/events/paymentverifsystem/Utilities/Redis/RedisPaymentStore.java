@@ -3,12 +3,16 @@ import com.events.paymentverifsystem.Utilities.Payment.PaymentInfo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.Cursor;
 import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.connection.ReturnType;
+import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.data.redis.serializer.StringRedisSerializer;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
@@ -155,6 +159,36 @@ public class RedisPaymentStore {
             log.error("consumeByEmailAndAmount failed", e);
             return null;
         }
+    }
+    public boolean isProcessed(String messageId) {
+        try {
+            String key = processedKey(messageId);
+            return redisTemplate.hasKey(key);
+        } catch (Exception e) {
+            log.warn("Failed to check Redis processed key", e);
+            return false;
+        }
+    }
+    public List<String> scanKeys(String pattern, int limit) {
+        return redisTemplate.execute((RedisCallback<List<String>>) connection -> {
+            List<String> out = new ArrayList<>();
+            Cursor<byte[]> cursor = null;
+            try {
+                ScanOptions scanOptions = ScanOptions.scanOptions()
+                        .match(pattern)
+                        .count(Math.min(1000, Math.max(10, limit)))
+                        .build();
+                cursor = connection.scan(scanOptions);
+                while (cursor.hasNext() && out.size() < limit) {
+                    byte[] bs = cursor.next();
+                    String key = stringSerializer.deserialize(bs);
+                    out.add(key);
+                }
+            } finally {
+                if (cursor != null) try { cursor.close(); } catch (Exception ignored) {}
+            }
+            return out;
+        });
     }
 
     private String asString(java.util.List<?> list, int idx) {
