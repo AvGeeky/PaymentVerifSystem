@@ -15,6 +15,9 @@ import javax.mail.internet.InternetAddress;
 import java.io.IOException;
 import java.time.*;
 import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
+import java.time.temporal.TemporalAccessor;
+import java.util.Arrays;
 import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -130,30 +133,58 @@ public final class EmailParser {
     }
 
     private static Instant extractPaidOn(Document doc, Message message, String raw) {
-        // prefer explicit Paid On element
-        Element paid = doc.selectFirst(".information-row:contains(Paid On), .card:contains(Paid On)");
-        if (paid != null) {
-            Matcher m = PAID_ON_PATTERN.matcher(paid.text());
-            if (m.find()) {
-                String dateStr = m.group(1).replaceAll("(st|nd|rd|th)", "");
-                try {
-                    DateTimeFormatter fmt = DateTimeFormatter.ofPattern("d MMM, yyyy", Locale.ENGLISH);
-                    LocalDate ld = LocalDate.parse(dateStr.trim(), fmt);
-                    return ld.atStartOfDay(ZoneId.systemDefault()).toInstant();
-                } catch (Exception ignored) {}
-            }
+        String marker = "Paid On";
+        String textSource = doc.text();
+
+        // First try: look for "Paid On" in HTML text
+        int startIndex = textSource.indexOf(marker);
+        if (startIndex != -1) {
+            String afterMarker = textSource.substring(startIndex + marker.length()).trim();
+            Instant parsed = tryParsePaidOn(afterMarker);
+            if (parsed != null) return parsed;
         }
-        // try ISO in text
-        Matcher iso = Pattern.compile("(\\d{4}-\\d{2}-\\d{2}[T\\s]\\d{2}:\\d{2}(?::\\d{2})?(?:Z|[+-]\\d{2}:?\\d{2})?)").matcher(doc.text());
+
+        // Second try: look for ISO date in whole raw text
+        Matcher iso = Pattern.compile("(\\d{4}-\\d{2}-\\d{2}[T\\s]\\d{2}:\\d{2}(?::\\d{2})?(?:Z|[+-]\\d{2}:?\\d{2})?)")
+                .matcher(textSource);
         if (iso.find()) {
-            try { return Instant.parse(iso.group(1).replace(' ', 'T')); } catch (Exception ignored) {}
+            try {
+                return Instant.parse(iso.group(1).replace(' ', 'T'));
+            } catch (Exception ignored) {}
         }
+
+        // Fallback: email sent date
         try {
             java.util.Date sent = message.getSentDate();
             if (sent != null) return sent.toInstant();
         } catch (MessagingException ignored) {}
+
+        // Last fallback: now
         return Instant.now();
     }
+
+    // helper to try multiple patterns
+    private static Instant tryParsePaidOn(String dateStr) {
+        DateTimeFormatter[] formatters = {
+                DateTimeFormatter.ofPattern("d MMM, yyyy hh:mm:ss a 'UTC'XXX", Locale.ENGLISH),
+                DateTimeFormatter.ofPattern("d MMM, yyyy hh:mm a 'UTC'XXX", Locale.ENGLISH),
+                DateTimeFormatter.ofPattern("d MMM, yyyy", Locale.ENGLISH)
+        };
+        for (DateTimeFormatter fmt : formatters) {
+            try {
+                TemporalAccessor ta = fmt.parse(dateStr);
+                if (ta instanceof LocalDateTime) {
+                    return ((LocalDateTime) ta).atZone(ZoneId.of("UTC")).toInstant();
+                }
+                if (ta instanceof LocalDate) {
+                    return ((LocalDate) ta).atStartOfDay(ZoneId.of("UTC")).toInstant();
+                }
+            } catch (DateTimeParseException ignored) {}
+        }
+        return null;
+    }
+
+
 
     private static String extractPayerEmail(Document doc, String raw, Message message) {
         Element emailEl = doc.selectFirst(".information-row:contains(Email) .value, .card:contains(Email) .value");

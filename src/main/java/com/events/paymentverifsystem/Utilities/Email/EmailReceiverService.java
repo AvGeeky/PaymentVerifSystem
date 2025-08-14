@@ -14,6 +14,7 @@ import javax.mail.event.MessageCountEvent;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.*;
@@ -83,7 +84,7 @@ public class EmailReceiverService {
             return;
         }
         scheduleHeartbeat();
-        scheduleSweep();
+
         Thread t = new Thread(this::mainLoop, "EmailReceiverService-Loop"); //handles incoming emails
         t.setDaemon(true);
         t.start();
@@ -93,6 +94,7 @@ public class EmailReceiverService {
         int backoff = props.getIdleReconnectBackoffSeconds();
         while (running.get()) {
             try {
+                scheduleSweep();
                 connectAndOpenInbox();
                 // ensure listener not added multiple times
                 try { inbox.removeMessageCountListener(messageListener); } catch (Exception ignored) {}
@@ -244,15 +246,15 @@ public class EmailReceiverService {
             if (info == null) {
                 log.info("Could not parse payment info; moving to Unprocessed (mid={})", messageId);
                 // Mark processed in Redis to avoid repeated parsing churn (best-effort)
-                try {
-                    redisPaymentStore.savePaymentAtomic(
-                            new PaymentInfo("unknown", "", Instant.now(), "", "", "", "", "", messageId),
-                            businessKeyTtl(),
-                            processedKeyTtlSeconds
-                    );
-                } catch (Exception e) {
-                    log.warn("Failed to mark synthetic processed key for unparsed message mid={}", messageId, e);
-                }
+//                try {
+//                    redisPaymentStore.savePaymentAtomic(
+//                            new PaymentInfo("unknown", "", Instant.now(), "", "", "", "", "", messageId),
+//                            businessKeyTtl(),
+//                            processedKeyTtlSeconds
+//                    );
+//                } catch (Exception e) {
+//                    log.warn("Failed to mark synthetic processed key for unparsed message mid={}", messageId, e);
+//                }
                 moveToFolder(message, "Unprocessed");
                 try { message.setFlag(Flags.Flag.SEEN, true); } catch (Exception ignored) {}
                 return;
@@ -270,12 +272,12 @@ public class EmailReceiverService {
             Instant cutoff = Instant.now().minus(1, ChronoUnit.DAYS);
             if (info.getPaidOn().isBefore(cutoff)) {
                 log.info("Payment {} older than 1 day ({}). mid={}", info.getPaymentId(), info.getPaidOn(), messageId);
-                try {
-                    // mark processed so we don't re-parse
-                    redisPaymentStore.savePaymentAtomic(info, businessKeyTtl(), processedKeyTtlSeconds);
-                } catch (Exception e) {
-                    log.warn("Failed to mark processed for old payment mid={}", messageId, e);
-                }
+//                try {
+//                    // mark processed so we don't re-parse
+//                    redisPaymentStore.savePaymentAtomic(info, businessKeyTtl(), processedKeyTtlSeconds);
+//                } catch (Exception e) {
+//                    log.warn("Failed to mark processed for old payment mid={}", messageId, e);
+//                }
                 moveToFolder(message, "Processed");
                 try { message.setFlag(Flags.Flag.SEEN, true); } catch (Exception ignored) {}
                 return;
@@ -318,6 +320,7 @@ public class EmailReceiverService {
 
     //run a scheduler event to sweep unseen messages every one hour
     private void scheduleSweep() {
+        log.warn("Scheduling Redis-based unseen message sweep started");
         sweepScheduler.scheduleAtFixedRate(() -> {
             try {
                 if (inbox != null && inbox.isOpen()) {
@@ -328,15 +331,22 @@ public class EmailReceiverService {
 
                     for (Message m : messages) {
                         try {
-                            // Fetch only the headers we care about
+                            // Skip expunged messages
+                            if (m.isExpunged()) continue;
+
                             m.getFolder().fetch(new Message[]{m}, new FetchProfile() {{
                                 add(FetchProfile.Item.ENVELOPE);
                                 add("Message-ID");
                             }});
 
-                            Instant received = m.getReceivedDate() == null
-                                    ? Instant.now()
-                                    : m.getReceivedDate().toInstant();
+                            Instant received;
+                            try {
+                                Date rcvd = m.getReceivedDate();
+                                received = (rcvd == null) ? Instant.now() : rcvd.toInstant();
+                            } catch (MessageRemovedException mre) {
+                                log.debug("Message already expunged, skipping: msgNum={}", m.getMessageNumber());
+                                continue; // move to next message
+                            }
 
                             if (received.isBefore(cutoff)) continue;
 
@@ -347,19 +357,25 @@ public class EmailReceiverService {
                             if (!redisPaymentStore.isProcessed(messageId)) {
                                 log.info("Sweep found unprocessed message mid={}, fetching full message", messageId);
 
-                                // Fetch full message only now
-                                Message fullMessage = inbox.getMessage(m.getMessageNumber());
-                                workerPool.submit(() -> safeHandle(fullMessage));
+                                try {
+                                    Message fullMessage = inbox.getMessage(m.getMessageNumber());
+                                    workerPool.submit(() -> safeHandle(fullMessage));
+                                } catch (MessageRemovedException mre) {
+                                    log.debug("Message was expunged before full fetch: mid={}", messageId);
+                                }
                             }
+                        } catch (MessageRemovedException mre) {
+                            log.debug("Message already expunged, skipping: msgNum={}", m.getMessageNumber());
                         } catch (Exception innerEx) {
                             log.warn("Error while checking message in sweep", innerEx);
                         }
                     }
+
                 }
             } catch (Exception e) {
                 log.warn("Error during Redis-based unseen sweep", e);
             }
-        }, 1, 60, TimeUnit.MINUTES); // 60M sweep interval
+        }, 1, 15, TimeUnit.MINUTES); // 15M sweep interval
     }
 
 

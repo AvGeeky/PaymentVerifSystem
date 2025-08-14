@@ -48,6 +48,7 @@ public class PaymentVerificationController {
         // success
         log.info("Payment consumed for email={} paymentId={}", email, info.getPaymentId());
         VerifyResponse resp = new VerifyResponse(true, "Payment verified", info);
+
         return ResponseEntity.ok(resp);
     }
 
