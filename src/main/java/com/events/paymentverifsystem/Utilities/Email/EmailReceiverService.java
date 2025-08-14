@@ -83,7 +83,7 @@ public class EmailReceiverService {
             log.warn("EmailReceiverService already running");
             return;
         }
-        scheduleHeartbeat();
+
 
         Thread t = new Thread(this::mainLoop, "EmailReceiverService-Loop"); //handles incoming emails
         t.setDaemon(true);
@@ -96,6 +96,7 @@ public class EmailReceiverService {
             try {
                 scheduleSweep();
                 connectAndOpenInbox();
+                scheduleHeartbeat();
                 // ensure listener not added multiple times
                 try { inbox.removeMessageCountListener(messageListener); } catch (Exception ignored) {}
                 inbox.addMessageCountListener(messageListener);
@@ -180,9 +181,11 @@ public class EmailReceiverService {
     }
 
     private void scheduleHeartbeat() {
+        log.warn("Heartbeat scheduler started");
         if (heartbeatFuture != null && !heartbeatFuture.isDone()) heartbeatFuture.cancel(true);
-        long ttlSeconds = Math.max(60, props.getKeepAliveFreqMillis() / 1000 * 2L);
+        long ttlSeconds = 90; // 1.5 minutes, can be adjusted as needed
         heartbeatFuture = heartbeatScheduler.scheduleAtFixedRate(() -> {
+            log.warn("Heartbeat check started");
             try {
                 StringBuilder issues = new StringBuilder();
 
@@ -207,7 +210,7 @@ public class EmailReceiverService {
             } catch (Exception e) {
                 log.warn("Failed to write heartbeat to Redis", e);
             }
-        }, 5, props.getKeepAliveFreqMillis() / 1000, TimeUnit.SECONDS);
+        }, 5, 60, TimeUnit.SECONDS);
     }
 
 
