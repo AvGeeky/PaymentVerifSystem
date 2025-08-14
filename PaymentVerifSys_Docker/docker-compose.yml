@@ -1,0 +1,41 @@
+services:
+  redis:
+    build:
+        context: ./redis-setup
+        dockerfile: Dockerfile
+        args:
+            REDIS_PASSWORD: ${REDIS_PASSWORD}
+    container_name: payment-verif-redis
+    expose:
+    - "6379"
+    volumes:
+    - redis-data:/data
+    restart: always
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    healthcheck:
+      test: ["CMD", "sh", "-c", "redis-cli -a \"$REDIS_PASSWORD\" ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 3s
+    networks: [backend]
+
+  app:
+      build:
+        context: ./springBoot
+        dockerfile: Dockerfile
+      container_name: payment-verif-app
+      ports:
+      - "8080:8080"
+      env_file:
+      - .env
+      depends_on:
+        redis:
+            condition: service_healthy
+
+      networks: [backend]
+volumes:
+  redis-data:
+networks:
+  backend:

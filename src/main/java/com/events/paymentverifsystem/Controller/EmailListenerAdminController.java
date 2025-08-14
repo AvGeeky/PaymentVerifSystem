@@ -77,7 +77,7 @@ public class EmailListenerAdminController {
             if (raw == null) {
                 resp.put("status", "DOWN");
                 resp.put("reason", "No heartbeat key found in Redis");
-                return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(resp);
+                return ResponseEntity.status(200).body(resp);
             }
 
             Instant last;
@@ -86,7 +86,7 @@ public class EmailListenerAdminController {
             } catch (DateTimeParseException e) {
                 resp.put("status", "DOWN");
                 resp.put("reason", "Invalid timestamp stored in heartbeat");
-                return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(resp);
+                return ResponseEntity.status(200).body(resp);
             }
 
             Duration age = Duration.between(last, Instant.now());
@@ -97,14 +97,14 @@ public class EmailListenerAdminController {
             } else {
                 resp.put("status", "STALE");
                 resp.put("reason", "Heartbeat older than allowed maxAgeSeconds=" + maxAge.getSeconds());
-                return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(resp);
+                return ResponseEntity.status(200).body(resp);
             }
 
         } catch (Exception e) {
             log.error("Failed to read heartbeat from Redis", e);
             resp.put("status", "DOWN");
             resp.put("reason", "Redis read error: " + e.getMessage());
-            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(resp);
+            return ResponseEntity.status(200).body(resp);
         }
     }
 
