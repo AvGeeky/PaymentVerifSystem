@@ -55,7 +55,7 @@
         <dependency>
             <groupId>org.apache.tomcat.embed</groupId>
             <artifactId>tomcat-embed-core</artifactId>
-            <version>10.1.42</version> <!-- Secure version -->
+            <version>10.1.44</version> <!-- Secure version -->
         </dependency>
         <dependency>
             <groupId>org.apache.tomcat.embed</groupId>
